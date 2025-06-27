@@ -1,6 +1,8 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, UpSampling2D, Concatenate, Flatten
-from tensorflow.keras.models import Model
+# from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, UpSampling2D, Concatenate, Flatten
+# from tensorflow.keras.models import Model
+from keras.layers import Input, Conv2D, MaxPooling2D, UpSampling2D, Concatenate, Flatten
+from keras.models import Model
 import time
 import numpy as np
 
