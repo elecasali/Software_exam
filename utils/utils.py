@@ -51,7 +51,7 @@ def manual_conv2D(input_data, kernel, bias, padding):
 
     # Compatibility check between kernel and input dimensions
     if input_channels != kernel_channels:
-        raise ValueError(f"I canali dell'input ({input_channels}) e del kernel ({kernel_channels}) devono coincidere")
+        raise ValueError(f"The input channels ({input_channels}) and the kernel channels ({kernel_channels}) must match")
     
     # Add padding if required
     if padding == 'same':
@@ -88,7 +88,7 @@ def manual_upsampling(input_data):
     elif len(input_data.shape) == 3:  # No batch
         input_height, input_width, input_channels = input_data.shape
     else:
-        raise ValueError("Input input_data deve avere 3 o 4 dimensioni.")
+        raise ValueError("The input input_data must have 3 or 4 dimensions")
        
     # Output dimensions
     output_height = input_height * 2
@@ -107,7 +107,7 @@ def manual_concatenate(tensor1, tensor2, axis=-1):
 
     # Check that height and width are equal
     if not (tensor1.shape[0] == tensor2.shape[0] and tensor1.shape[1] == tensor2.shape[1]):
-        raise ValueError("Errore 1 concatenazione")
+        raise ValueError("Error 1 concatenation")
 
     # Manual concatenation along the channel axis
     if axis == -1 or axis == 3:  # channels
@@ -116,7 +116,7 @@ def manual_concatenate(tensor1, tensor2, axis=-1):
         merged[:, :, tensor1.shape[2]:] = tensor2
         return merged
     else:
-        raise ValueError("Errore 2 concatenazione")
+        raise ValueError("Error 2 concatenation")
 
     
 # Activation function - Sigmoid
