@@ -5,7 +5,7 @@ from keras.layers import Input, Conv2D, MaxPooling2D, UpSampling2D, Concatenate,
 from keras.models import Model
 import time
 import numpy as np
-from utils.utils import *
+from utils.utils import * # contains funtions manually defined
 
 
 #### U-NET MODEL DEFINITION ####
