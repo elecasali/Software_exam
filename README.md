@@ -13,6 +13,7 @@
   - [`unet.py`](#unetpy)
   - [`test_firmware.py`](#test_firmwarepy)
   - [`utils/`](#utils)
+    - [__init__.py](#__init__py)
     - [utils.py](#utilspy)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -394,7 +395,149 @@ This script bridges the gap between Python modeling and FPGA hardware constraint
 
 ### utils/
 
+#### __init__.py
+The `__init__.py` file, even if empty, serves as a marker to Python that the directory should be treated as a package, not just a plain folder.
+
+---
+
 #### utils.py
+
+This module provides manual NumPy-based implementations of core layer operations needed to simulate U-Net and CNN forward passes under quantization constraints, without relying on Keras internals.
+
+##### `maxpool2d_manual`
+
+It takes `input_data` with shape (height, width, channels) and performs 2D max pooling using a 2x2 window that moves with a stride of 2, taking the maximum value in each window to reduce spatial dimensions. Then returns a downsampled tensor.
+
+```python
+def maxpool2d_manual(input_data, pool_size=(2, 2), stride=2):
+    input_height, input_width, num_channels = input_data.shape
+    pool_height, pool_width = pool_size
+    output_height = (input_height - pool_height) // stride + 1
+    output_width = (input_width - pool_width) // stride + 1
+    output = np.zeros((output_height, output_width, num_channels))
+    for i in range(output_height):
+        for j in range(output_width):
+            for c in range(num_channels):
+                region = input_data[i*stride:i*stride+pool_height, j*stride:j*stride+pool_width, c]
+                output[i, j, c] = np.max(region)
+    return output
+```
+
+##### `relu_manual`
+
+The ReLU activation function replaces all negative values with zero and leaves positive values unchanged while maintaining the same input dimensions.
+
+```python
+def relu_manual(input_data):
+    return np.maximum(input_data, 0)
+```
+
+##### `add_padding`
+
+This function adds zero-padding to the input tensor in order to have an output with the same input dimensions after a convolution with 'same' padding.
+Te padding size (`pad_h`, `pad_w`) is computed based on kernel size.
+
+```python
+def add_padding(input_data, kernel_height, kernel_width):
+    pad_h = (kernel_height - 1) // 2
+    pad_w = (kernel_width - 1) // 2
+    padded_input = np.pad(input_data, ((pad_h, pad_h), (pad_w, pad_w), (0, 0)), mode='constant', constant_values=0)
+    return padded_input
+```
+
+##### `manual_conv2D`
+
+This function manually performs a 2D convolution on an input tensor using a specified kernel and bias, with optional 'same' padding. It checks if the input has a batch dimension (4D) and reshapes it to 3D for computation. 
+It extracts the dimensions of both the input and the kernel, ensuring that the input channels match the kernel channels. 
+If 'same' padding is requested, it uses `add_padding` to maintain output size consistency. It calculates the output dimensions based on the input and kernel sizes with a stride of 1, initializes an output tensor, and uses nested loops over height, width, and filters. 
+For each position, it computes the sum of the element-wise product of the kernel and the corresponding region in the input across all channels, adds the filter bias, and stores the result.
+
+```python
+def manual_conv2D(input_data, kernel, bias, padding):
+    stride = 1
+    if len(input_data.shape) == 4:
+        input_data = input_data.reshape(input_data.shape[1:])
+    input_height, input_width, input_channels = input_data.shape
+    kernel_height, kernel_width, kernel_channels, num_filters = kernel.shape
+    if input_channels != kernel_channels:
+        raise ValueError(f"The input channels ({input_channels}) and the kernel channels ({kernel_channels}) must match")
+    if padding == 'same':
+        input_data = add_padding(input_data, kernel_height, kernel_width)
+        input_height, input_width, _ = input_data.shape
+    output_height = (input_height - kernel_height) // stride + 1
+    output_width = (input_width - kernel_width) // stride + 1
+    output = np.zeros((output_height, output_width, num_filters))
+    for i in range(output_height):
+        for j in range(output_width):
+            for f in range(num_filters):
+                sum_ = 0
+                for c in range(input_channels):
+                    for di in range(kernel_height):
+                        for dj in range(kernel_width):
+                            sum_ += input_data[i + di, j + dj, c] * kernel[di, dj, c, f]
+                sum_ += bias[f]
+                output[i, j, f] = sum_
+    return output
+```
+
+The convolution operation computed is:
+
+$$
+output[i, j, f] = 
+\sum_{c=0}^{C-1} \sum_{di=0}^{K_h-1} \sum_{dj=0}^{K_w-1} input[i+di, j+dj, c] \times kernel[di, dj, c, f] + bias[f]
+$$
+
+where \$C\$ is the number of channels, \$K\_h\$ and \$K\_w\$ are the kernel height and width, and \$f\$ indexes the output filter.
+
+##### `manual_upsampling`
+
+It doubles the height and width of the input tensor using nearest-neighbor upsampling by copying each pixel into a 2x2 block while keeping channels unchanged.
+
+```python
+def manual_upsampling(input_data):
+    if len(input_data.shape) == 4:
+        input_data = input_data.reshape(input_data.shape[1:])
+    elif len(input_data.shape) != 3:
+        raise ValueError("The input input_data must have 3 or 4 dimensions")
+    input_height, input_width, input_channels = input_data.shape
+    output_height = input_height * 2
+    output_width = input_width * 2
+    output_data = np.zeros((output_height, output_width, input_channels))
+    for i in range(input_height):
+        for j in range(input_width):
+            for c in range(input_channels):
+                output_data[i*2:i*2+2, j*2:j*2+2, c] = input_data[i, j, c]
+    return output_data
+```
+
+##### `manual_concatenate`
+
+This mimics `Concatenate` in Keras, hence concatenates two tensors along the channel axis while ensuring they have the same height and width.
+After checking shape compatibility, it creates a new tensor with combined channels, filling it with the values from the two tensors.
+
+```python
+def manual_concatenate(tensor1, tensor2, axis=-1):
+    if tensor1.shape[0] != tensor2.shape[0] or tensor1.shape[1] != tensor2.shape[1]:
+        raise ValueError("Error 1 concatenation: tensors must have the same height and width")
+    if axis == -1 or axis == 3:
+        merged = np.zeros((tensor1.shape[0], tensor1.shape[1], tensor1.shape[2] + tensor2.shape[2]))
+        merged[:, :, :tensor1.shape[2]] = tensor1
+        merged[:, :, tensor1.shape[2]:] = tensor2
+        return merged
+    else:
+        raise ValueError("Error 2 concatenation: invalid axis")
+```
+
+##### `manual_sigmoid`
+
+It applies the sigmoid activation element-wise to squash values between 0 and 1.
+
+```python
+def manual_sigmoid(tensor_input):
+    return 1 / (1 + np.exp(-tensor_input))
+```
+
+---
 
 ## Installation
 

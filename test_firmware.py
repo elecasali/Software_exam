@@ -1,6 +1,6 @@
 # FIRMWARE TESTING SCRIPT WITH COMPARISON AND STATISTICS
 
-#
+## AUTHOR: L. FENDILLO
 
 # This script tests a manual firmware implementation against a Keras model
 import numpy as np
