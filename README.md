@@ -64,6 +64,7 @@ Here, we apply 8-bit signed quantization while storing values in int16 to preven
 #### Quantization Formula
 
 Given a floating-point value: $x_{float}$, we first compute a scale factor:
+
 $$
 S = 2^{b} \quad \text{where} \quad b = b_w - 1 - \lfloor \log_2 (\max(|x_{float}|)) \rfloor
 $$
@@ -88,10 +89,10 @@ Using int16 is essential here because when multiple quantized values are multipl
 
 #### Process Summary
 
-1. **Compute scale factors** based on the maximum absolute values in weights and inputs to fully use the 8-bit range while preventing overflow.
-2. **Quantize inputs, weights, and biases using these scale factors** and store them as int16.
+1. Compute scale factors based on the maximum absolute values in weights and inputs to fully use the 8-bit range while preventing overflow.
+2. Quantize inputs, weights, and biases using these scale factors and store them as int16.
 3. Perform the forward pass manually using functions stored in `utils`, staying within the quantized domain.
-4. **Dequantize progressively** by dividing by the combined scale factors.
+4. Dequantize progressively by dividing by the combined scale factors.
 5. Compare the dequantized output with the float32 model to ensure they align closely.
 
 ---
@@ -213,9 +214,9 @@ Then the **Conv2D** layers applies a 2-filter convolution with a 3x3 kernel on t
 
 The scheme followed is:
 
-* `up1` upsample + concatenate with `conv3` → `dec1` conv.
-* `up2` upsample + concatenate with `conv2` → `dec2` conv.
-* `up3` upsample + concatenate with `conv1` → `dec3` conv.
+`up1` upsample + concatenate with `conv3` → `dec1` conv.
+`up2` upsample + concatenate with `conv2` → `dec2` conv.
+`up3` upsample + concatenate with `conv1` → `dec3` conv.
 
 These layers progressively reconstruct the image size while preserving spatial details from encoder layers. 
 
@@ -331,14 +332,14 @@ In the final block:
 
 the manual convolution, ReLU, max pooling, upsampling, and concatenation functions used are implemented in the `utils` module. After completing the forward pass with the manually quantized U-Net, the network is then dequantized to recover a float representation. This allows you to verify the agreement between the dequantized output and the original float32 output from the Keras model, ensuring the correctness of the manual quantization workflow before moving to FPGA testing.
 
-#### Results After Executing `unet.py`
+#### Results
 The following results confirm that manual quantization and dequantization preserve the integrity of the U-Net output within a low percentage error, validating the correctness of the pipeline for FPGA preparation.
 
-* **Execution times:**
+**Execution times:**
 
   * Float32 Keras: \~1.17 seconds
   * Manual quantized pipeline: \~1.06 seconds
-* **Percentage difference (float vs dequantized):**
+**Percentage difference (float vs dequantized):**
 
   * **Maximum:** 8.33 %
   * **Mean:** 0.99 %
