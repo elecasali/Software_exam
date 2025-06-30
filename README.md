@@ -339,6 +339,7 @@ The following results confirm that manual quantization and dequantization preser
 
   * Float32 Keras: \~1.17 seconds
   * Manual quantized pipeline: \~1.06 seconds
+  
 **Percentage difference (float vs dequantized):**
 
   * **Maximum:** 8.33 %
