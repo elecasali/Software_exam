@@ -45,8 +45,8 @@ In short, `utils.py `, as the basis of the project, was written by both E.C. and
 ## Repository structure
 
 ```
-├── unet.py            # Builds float32 U-Net, performs quantization to int16, and dequantization
 ├── cnn_quantized.py   # Builds float32 CNN, performs quantization to int16, and dequantization
+├── unet.py            # Builds float32 U-Net, performs quantization to int16, and dequantization
 ├── test_firmware.py   # Tests a manual firmware implementation against a Keras model
 ├── utils/             # Folder with helper functions for manual layer-wise quantization
 │   ├── __init__.py    # marks the folder as a Python package
