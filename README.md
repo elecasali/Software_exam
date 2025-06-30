@@ -165,7 +165,7 @@ from keras.layers import Input, Conv2D, MaxPooling2D, UpSampling2D, Concatenate,
 from keras.models import Model
 import time
 import numpy as np
-from utils.utils import *  # custom manually defined functions for manual convolution, pooling, etc.
+from utils.utils import *  # contains funtions manually defined
 ```
 where **TensorFlow and Keras** are required for constructing and executing the U-Net, **time** is used to measure execution time, **numpy** is used for generating and manipulating input data and manually initializing kernels and biases, and **utils.utils** contains manually implemented layer operations for manual quantization.
 
@@ -177,7 +177,7 @@ def unet_model(input_shape=(64, 64, 1)):
 ```
 defines a function that builds and returns a U-Net model, which takes as input `input_shape=(64, 64, 1)`, a tensor with dimension 64x64 and 1 channel (grayscale image).
 
-In the *Encoder* section we create an input layer with the specified shape for the model and then we apply Convolution + MaxPooling for three times
+In the *Encoder* section, an input layer with the specified shape is created for the model, followed by the application of Convolution and MaxPooling operations three times in sequence.
 
 ```python
 inputs = Input(shape=input_shape)
@@ -185,7 +185,7 @@ inputs = Input(shape=input_shape)
 conv1 = Conv2D(2, (3, 3), activation='relu', padding='same')(inputs)
 pool1 = MaxPooling2D((2, 2))(conv1)
 ```
-where `Conv2D(2, (3, 3), activation='relu', padding='same')` applies 2 convolution filters of size 3x3, uses ReLU as activation function and with `padding='same'` keeps the output size the same as input. The `MaxPooling2D((2, 2))` instead, applies 2x2 max pooling, reducing spatial dimensions (height and width) by 2.
+where `Conv2D(2, (3, 3), activation='relu', padding='same')` applies 2 convolution filters of size 3x3, uses ReLU as activation function and with `padding='same'` keeps the output size the same as input. The `MaxPooling2D((2, 2))` instead, applies 2x2 max pooling, reducing spatial dimensions by 2.
 The same pattern repeats for `conv2`, `pool2`, `conv3`, `pool3`:
 
 The bottleneck layer:
@@ -205,7 +205,7 @@ Shape after pool3: (None, 8, 8, 2)
 Shape after conv4 (bottleneck): (None, 8, 8, 2)
 ```
 
-In the *Decoder* section the **UpSampling2D** is used to double spatial dimensions (height and width) of the previous layer output using nearest-neighbor upsampling. ence **Concatenate** is applied to concatenate the upsampled feature map with encoder outputs (skip connections), resulting in a intermediate stage with the number of channels doubled. 
+In the *Decoder* section the **UpSampling2D** is used to double spatial dimensions (height and width) of the previous layer output using nearest-neighbor upsampling. Hence **Concatenate** is applied to concatenate the upsampled feature map with encoder outputs (skip connections), resulting in a intermediate stage with the number of channels doubled. 
 Then the **Conv2D** layers applies a 2-filter convolution with a 3x3 kernel on the concatenated feature map halving the number of channels.
 
 ```python
@@ -214,7 +214,7 @@ Then the **Conv2D** layers applies a 2-filter convolution with a 3x3 kernel on t
     dec1 = Conv2D(2, (3, 3), activation='relu', padding='same')(merge1)
 ```
 
-The scheme followed is:
+The scheme followed in this branch is:
 
 `up1` upsample + concatenate with `conv3` → `dec1` conv.
 
@@ -224,7 +224,7 @@ The scheme followed is:
 
 These layers progressively reconstruct the image size while preserving spatial details from encoder layers. 
 
-The output layer
+The final output layer
 
 ```python
 outputs = Conv2D(1, (1, 1), activation='relu')(dec3)
@@ -242,7 +242,7 @@ unet = unet_model(input_shape=(64, 64, 1))
 
 #### Keras U-Net Model Execution
 
-We set a fixed random seed for reproducibility and generate a random 64x64 grayscale image (batch=1, height=64, width=64, channels=1). The input is normalized to the [0, 1] range.
+A fixed random seed is set for reproducibility, and a random 64x64 grayscale image (batch=1, height=64, width=64, channels=1) is generated. The input is then normalized to the [0, 1] range.
 
 ```python
 np.random.seed(1)
@@ -250,7 +250,7 @@ input_data = np.random.rand(1, 64, 64, 1).astype(np.float32)
 input_float = input_data / np.max(input_data) 
 ```
 
-The following block manually initializes and normalizes kernels and biases for each Conv2D layer in the U-Net using fixed seeds for reproducibility. Kernels are generated with random values, normalized to [0, 1] to avoid overflow, while biases are initialized to zero for testing consistency.
+The following block manually initializes and normalizes kernels and biases for each Conv2D layer in the U-Net using different fixed seeds. Kernels are generated with random values, normalized to [0, 1] to avoid overflow, while biases are initialized to zero.
 
 ```python
 # Manual initialization and normalization of kernels and biases for Conv2D layers
@@ -265,6 +265,7 @@ manual_kernel_float_8 = manual_kernel_88 / np.max(manual_kernel_88)
 manual_bias_float_8 = np.zeros(1)
 ```
 Across the U-Net layers, the kernel dimensions evolve consistently while following architectural needs.
+
 The weights are then assigned by extracting each Conv2D layer by its index and assigning the manually created and normalized kernels and biases to that layer using `set_weights()`.
 
 ```python
@@ -276,8 +277,6 @@ conv_layer_1.set_weights([manual_kernel_float_1, manual_bias_float_1])
 conv_layer_8 = unet.layers[17]
 conv_layer_8.set_weights([manual_kernel_float_8, manual_bias_float_8])
 ```
-
-This way, the U-Net runs with consistent, known weights instead of random ones, making it easier to compare the float and quantized outputs.
 
 Now, the Keras model is executed while measuring the execution time using `time.time()`, and the output is printed for inspection.
 
@@ -316,7 +315,7 @@ scale_input = 2 ** b_in
 scale_kernel8 = 2 ** b_k8
 ```
 
-In the `#### QUANTIZATION ####` step, the input, kernels, and biases are quantized.
+Whhile in the `#### QUANTIZATION ####` step, the input, kernels, and biases are quantized.
 
 ```python
 #### QUANTIZATION ####
