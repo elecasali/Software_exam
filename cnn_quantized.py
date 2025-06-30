@@ -2,6 +2,7 @@ import numpy as np
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv2D, Flatten, Dense, MaxPooling2D
 import time
+from utils.utils import * # contains funtions manually defined
 
 # Total number of bits to use
 B_W = 8  
