@@ -75,6 +75,7 @@ $$
 \boxed{ x_{quant} = \mathrm{clip}(\mathrm{round}(x_{float} \times S), -127, 127) } .
 $$
 
+as described in *Xiong et al.* [[2]](#references).
 #### Dequantization Formula
 
 To get back to approximate floating-point values, we use:
@@ -339,7 +340,7 @@ The following results confirm that manual quantization and dequantization preser
 
   * Float32 Keras: \~1.17 seconds
   * Manual quantized pipeline: \~1.06 seconds
-  
+
 **Percentage difference (float vs dequantized):**
 
   * **Maximum:** 8.33 %
