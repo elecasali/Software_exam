@@ -9,12 +9,12 @@
 - [Introduction](#introduction)
 - [Contributions](#contributions)
 - [Repository structure](#repository-structure)
-  - [`cnn_quantized.py`](#cnn_quantizedpy)
-  - [`unet.py`](#unetpy)
-  - [`test_firmware.py`](#test_firmwarepy)
-  - [`utils/`](#utils)
-    - [__init__.py](#__init__py)
-    - [utils.py](#utilspy)
+  - [`cnn_quantized.py` -- L.F.](#cnn_quantizedpy)
+  - [`unet.py` -- E.C.](#unetpy)
+  - [`test_firmware.py` -- L.F.](#test_firmwarepy)
+  - [`utils/` -- E.C., L.F.](#utils)
+    - [`__init__.py`](#__init__py)
+    - [`utils.py`](#utilspy)
 - [Installation](#installation)
 - [Usage](#usage)
 - [Dependencies](#dependencies)
@@ -24,15 +24,16 @@
 
 ## Introduction
 
-Neural Networks (NNs) are computational models inspired by the structure of biological neural networks, designed to identify patterns, weight options, and reach decisions through interconnected layers of neurons [[1]](#references). Each neuron receives weighted inputs, applies a bias, and passes its output to subsequent neurons through an activation function, enabling complex hierarchical representations. NNs form the foundation of deep learning, finding extensive application in medical imaging and segmentation tasks but often require significant computational resources due to the reliance on floating-point operations and multi-layer structures [[2]](#references)[[3]](#references). In particular, CNN architectures use **convolution** as the operation applied in its neurons.
+Neural Networks (NNs) are computational models inspired by the structure of biological neural networks, designed to identify patterns, weight options, and reach decisions through layers and nodes of neurons [[1]](#references). Each neuron receives weighted inputs, applies a bias, and passes its output to following neurons through an activation function. NNs are the basis of deep learning, with applications in medical imaging and segmentation tasks, but often require significant computational resources due to their need of floating-point operations and multi-layer structures [[2]](#references)[[3]](#references). In particular, CNN architectures use **convolution** as the operation applied in their neurons.
 
-A specialized architecture for image segmentation is the **U-Net**, which adopts an encoder-decoder structure based on the CNN. The **encoder** progressively contracts the spatial dimensions of the input while extracting abstract features, followed by a **bottleneck** that represents the point of maximum compression of information. The **decoder** then reconstructs the image to the original input resolution by expanding the feature maps, while **skip connections** link corresponding layers in the encoder and decoder, preserving spatial details and enhancing segmentation precision. Upsampling within the decoder increases spatial resolution, and concatenation operations merge feature maps from different layers to retain fine-grained spatial information. 
+The **U-Net** is an architecture based on the CNN and often employed for image segmentation. It has an ecoder-decoder structure, where the **encoder** starts by contracting the spatial dimensions of the input and extracting abstract features; the point of maximum information compression is the **bottleneck**, which is often a fully-connected dense layer. Until this point, the functions are the same as a regular CNN. The up-going branch is the **decoder** which reconstructs the image back to its original resolution. It expands the feature maps and uses **skip connections** to link corresponding layers in the encoder in order to transfer and preserve spatial details. Upsampling increases the spatial resolution and concatenation merge feature maps from different layers.
 
-The goal of this project is to **quantize** NN architectures following the quantization method presented in *Xiong et al.* [[2]](#references), and to evaluate its computational feasibility and numerical correctness. The quantization reduces input and weights to 8-bit signed integers while maintaining them on 16-bit to avoid overflow, followed by layer-wise rescaling to propagate values through the network. The primary objective is to verify that quantization can be successfully applied to a CNN and a U-Net from a computational perspective, comparing the outputs of the float model and the dequantized model to assess numerical alignment. Furthermore, we provide the execution time so that, once implemented in VHDL firmware, it can be evaluated in comparison.  
+The goal of this project is to **quantize** NN architectures following the quantization method presented in *Xiong et al.* [[2]](#references), and to evaluate the computational feasibility and numerical accuracy. The quantization reduces input and weights to signed 8 bit integers while memorizing them on 16 bit to avoid overflow, followed by rescaling to transfer values through the network. The primary goal is to verify that quantization can be successfully applied to a CNN and a U-Net from a computational perspective, comparing the outputs of the float model and the dequantized model to verify numerical correspondence. Furthermore, we require the code to provide the execution time so that, once implemented in VHDL firmware, it can be evaluated in comparison.  
 
 It is important to note that **the networks have not been trained**, and the **biases, weights, and input matrices are randomly generated numbers**. This approach is intentional, as the project focuses on verifying the implementation of quantization and its compatibility with hardware-level simulation, rather than evaluating segmentation accuracy. The purpose of the project is to verify the successful implementation of quantization so that it can later be expanded and applied to more complex networks. This would enable their implementation on FPGA with **significantly reduced execution times while maintaining a good level of precision**, providing a scalable and efficient foundation for deploying larger networks in hardware environments. 
 
 These codes are complementary to the FPGA implementation in VHDL, not provided in this repository. 
+
 
 ## Contributions 
 
@@ -54,7 +55,7 @@ In short, `utils.py `, as the basis of the project, was written by both E.C. and
 ├── env.yml            # Conda environment definition with all dependencies
 └── README.md          # Project overview, instructions, and design rationale
 ```
-Before commenting on the structure of the individual scripts, let's first explain the quantization procedure followed in both the CNN and the U-Net.
+Before commenting on the structure of the individual scripts, we first explain the quantization procedure followed in both the CNN and the U-Net.
 
 ### Purpose of Quantization:
 
@@ -99,61 +100,166 @@ Using int16 is essential here because when multiple quantized values are multipl
 
 ---
 
-### cnn_quantized.py
+### cnn_quantized.py -- L.F.
+#### Library Imports
+
+For building and testing the CNN, the following libraries are used:
+
+```python
+import numpy as np
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Conv2D, Flatten, Dense, MaxPooling2D
+import time
+from utils.utils import * 
+```
+
+* **TensorFlow Keras** is used to define and run the CNN float32 model for reference.
+* **NumPy** is used for generating random input data and manually creating and processing kernels and biases.
+* **time** is used to measure execution times for both Keras and manual quantized models.
+
+---
+
+#### CNN Model Definition
+
+The CNN is a simple feed-forward convolutional network composed of:
+
+* 4 convolutional layers, each followed by ReLU activation.
+* 3 MaxPooling layers that progressively reduce spatial dimensions.
+* A final Flatten layer followed by a fully connected Dense output layer.
+
+##### Model structure:
+
+```python
+model = Sequential([
+    Conv2D(8, (3, 3), activation='relu', input_shape=(64, 64, 1)),
+    MaxPooling2D((2, 2)),
+    Conv2D(16, (3, 3), activation='relu'),
+    MaxPooling2D((2, 2)),
+    Conv2D(32, (3, 3), activation='relu'),
+    MaxPooling2D((2, 2)),
+    Conv2D(64, (3, 3), activation='relu'),
+    Flatten(),
+    Dense(1, activation='linear')
+])
+```
+
+---
+
+#### Keras CNN Model Execution
+
+1. **Input generation:**
+
+```python
+np.random.seed(1)
+input_data = np.random.rand(1, 64, 64, 1).astype(np.float32)
+input_float = input_data / np.max(input_data)
+```
+
+2. **Kernel initialization:**
+
+```python
+np.random.seed(1)
+manual_kernel = np.random.rand(3, 3, 1, 8).astype(np.float32)
+manual_kernel_float = manual_kernel / np.max(manual_kernel)
+manual_bias_float = np.zeros(8)
+```
+
+3. **Weight assignment:**
+
+```python
+conv_layer_1.set_weights([manual_kernel_float_1, manual_bias_float_1])
+```
+
+4. **Model execution:**
+
+```python
+start_keras = time.time()
+output_model = model.predict(input_float)
+stop_keras = time.time()
+timing_keras = stop_keras - start_keras
+```
+
+---
+
+#### Quantization
+
+##### Scale Factor Calculation
+
+```python
+b_in = B_W - 1 - np.round(np.log2(np.max(np.abs(input_float)))).astype(int)
+scale_input = 2 ** b_in
+```
+
+##### Quantization Formula
+
+```math
+x_{quant} = \mathrm{clip}(\mathrm{round}(x_{float} \cdot S), -127, 127)
+```
+
+##### Dequantization Formula
+
+```math
+x_{dequant} = \frac{x_{quant}}{S}
+```
+
+##### Overflow Handling
+
+* Manual overflow handling resets the sum to -32767.
+* An overflow counter is incremented each time.
+* Final result corrected with:
+
+```python
+result += overflow_counter * 32767
+```
+
+---
 
 #### Process Summary
-0. Hardcoding: number of bits the user wants the quantization to be based on. for signed integers between -127 and 127, 8 bits are necessary.
 
-1. Random input data, weights and biases are initialized, with seeds to ensure repsoducibility.
+0. Hardcode bit width (8 bits signed, int16 storage).
+1. Generate random inputs and weights.
+2. Build float Keras model.
+3. Calculate scale factors.
+4. Quantize inputs, weights, biases.
+5. Manual forward pass using firmware-like functions.
+6. Handle overflow events.
+7. Dequantize output.
+8. Compare results to float32 model.
 
-2. The non-quantized, Keras-based model is generated with 4 convolutional layers with ReLu, 3 MaxPolling layers, and a final, fully-connected dense layer.
+---
 
-3. Scale factors are calculated for the input and all kernels as outlined in *Xiong et al.* [[2]](#references).
+#### Results
 
-4. Inputs, weights, and biases are quantized to signed `int8` but stored as `int16` to avoid overflow issues.
+* **Float32 output:** Single scalar.
+* **Keras time:** \~0.016 seconds.
+* **Overflow counts:** Number of overflows in dense layer.
+* **Quantized manual output:** Pre-dequantization integer output.
+* **Manual time:** \~0.018 seconds.
+* **Dequantized manual output:** Matches float output closely.
+* **Difference:** Absolute float difference.
+* **Percentage difference:** \~1.31%.
+* **Timing difference:** \~0.002 seconds.
+* **Timing difference percentage:** \~12%.
 
-5. Manual forward propagation is executed layer-by-layer and based on the manual functions from the `utils.py` script.
+---
 
-6. Overflow detection and correction mechanisms are included during dense computations to mirror hardware-like constraints. In hardware, it was opted to store the data as `int32` or `int64`. The current mechanisms relies on the overflow resetting the summed variable to -32767, hence keeps a tally of the number of times the overflow happens and adds 32767 to bring the count back to 0, then adds the overflow after dequantizaion.
+#### Observations
 
-7. Dequantization reconstructs the floating-point output.
+* Validates quantization before moving to U-Net.
+* Overflow handling behaves correctly.
+* Numerical error is low and acceptable.
+* Results demonstrate viability for FPGA/ASIC deployment.
 
-8. Results are directly compared to the float32 Keras CNN output for output difference, percentage difference, and timing difference. These values are employed in the evaluation of the firmware acceleration.
+---
 
-#### Results After Executing cnn_quantized.py
-* **Output of the float32 model**
-  A single scalar value.
-* **Time for Keras output**
-  Execution time of the Keras model, in seconds.
-* **Times it overflows**
-  Number of times the overflow limit is crossed in the manual network, used to re-add the overflow after dequantization
-* **Quantized manual output:**
-  Manual network output, before dequantization. Can be used to verify correct working of overflow handling mechanism.
-* **Time for manual output**
-  Execution time of the manual model, in seconds.
-* **Dequantized manual output:**
-  A single scalar value, closely matching the float32 output with minor numerical differences.
-* **Difference**
-  Difference between Keras output and manual output.
-* **Percentage difference**
-  Difference between Keras output and manual output as percentage of the Keras output.
-* **Timing difference**
-  Difference of execution times between Keras and manual networks.
-* **Timing difference percentage**
-  Difference of execution times between Keras and manual networks as percentage of the Keras network timing.
+#### Summary Conclusion
 
+This CNN quantization pipeline confirms the accuracy and robustness of the integer-based approach, including overflow handling and rescaling. It provides a reliable foundation for scaling to larger networks or hardware implementations like FPGAs.
 
-
-#### Observations:
-The CNN serves as validation of the correctness of quantization for convolutional pipelines. It also provides comparison terms for the hardware implementation, in order to quantify the acceleration as well as the numerical accuracy in future complex implementations.
-
-This step is essential before applying the quantization method to more complex architectures like the U-Net.
-
-Results show a low numerical error with correct scaling and overflow handling, demonstrating compatibility with FPGA integer-based computation.
 
 --- 
 
-### unet.py
+### unet.py -- E.C.
 
 #### Library imports
 
@@ -333,70 +439,124 @@ In the final block:
 #### MANUAL UNET ####
 ```
 
-the manual convolution, ReLU, max pooling, upsampling, and concatenation functions used are implemented in the `utils` module. After completing the forward pass with the manually quantized U-Net, the network is then dequantized to recover a float representation. This allows you to verify the agreement between the dequantized output and the original float32 output from the Keras model, ensuring the correctness of the manual quantization workflow before moving to FPGA testing.
+The manual convolution, ReLU, MaxPooling, Upsampling, and concatenation functions used are implemented in the `utils` module. After completing the layer-by-layer implementation of the manually quantized U-Net, the network is dequantized to restore a float representation. This allows us to verify the agreement between the dequantized output and the original float32 output from the Keras model, ensuring the accuracy of the manual quantization before moving to FPGA testing.
 
 #### Results
-The following results confirm that manual quantization and dequantization preserve the integrity of the U-Net output within a low percentage error, validating the correctness of the pipeline for FPGA preparation.
-
-**Execution times:**
-
-  * Float32 Keras: \~1.17 seconds
-  * Manual quantized pipeline: \~1.06 seconds
-
-**Percentage difference (float vs dequantized):**
-
-  * **Maximum:** 8.33 %
-  * **Mean:** 0.99 %
+The results confirm that manual quantization and dequantization preserve the integrity of the Keras U-Net output within a low percentage error, validating the correctness of the pipeline for FPGA preparation.
 
 ---
 
-### test_firmware.py --
-This code accurately simulates the VHDL implementation. It is based on slightly modified functions with respect to those outlined in `utils.py` to faithfully reproduce the VHDL version and aid in the VHDL coding.
+### test_firmware.py -- L.F.
+
+#### Description
+
+This script simulates the behavior of a CNN as it would be implemented in VHDL firmware. It uses slightly modified functions compared to those in `utils.py` to more closely replicate the VHDL logic and assist in hardware coding and verification.
+
+---
 
 #### Process Summary
-0. Hardcoding: tune for the rescaling function mimicking the rescaling in the hardware implementation, and number of statistical tests the user wants to perform.
 
-1. Inputs, weights, and biases are all stored as 8  bit signed integers, but we use 16 bit integers for all intermediate calculations to avoid overflow.
+0. **Fixed Parameters:**
 
-2. The Keras-based CNN consists of a single 2D convolution layer with padding, ReLU activation, MaxPooling, a fully connected dense layer. Rescaling is applied between the MaxPooling and the dense layers, resulting in the CNN having to be split in two Keras sub-models.
+   * `TUNE = 12`: A constant used in the rescaling process to mimic hardware shifts instead of divisions. Equivalent to multiplying by \$2^{12} = 4096\$.
+   * `N = 200`: Number of random input samples for the extended statistical test.
 
-3. A shift-based rescaling method is applied with a configurable parameter TUNE = 12 (scaling factor equivalent to multiplying by $2^{12} = 4096$). This simulates bit-shifting instead of division, in order to approximate the result of the division without using float values in hardware.
+1. **Integer Data Representation:**
 
-4. Manual forward propagation through manual, numpy-exempt functions.
+   * Inputs, weights, and biases are stored as **8-bit signed integers (`int8`)**.
+   * Intermediate computations use **16-bit signed integers (`int16`)** to prevent overflow.
 
-5. Deviation analysis computing output difference for a single run and percentage deviation relative to Keras output.
+2. **Keras Model:**
 
-6. Extended statistical testing performs the same computation on N = 200 randomly generated inputs, producing average deviation, minimum, maximum, and median deviation, a histogram of deviations for statistical analysis.
+   * A CNN with:
 
-7. Division library generation generates a file division_library.txt containing precomputed division results in hexadecimal format, designed to be used in FPGA LUT-based division, eliminating the need for hardware division circuits.
+     * 1 convolution layer (with padding), followed by ReLU activation.
+     * MaxPooling layer.
+     * Dense (fully connected) layer.
+   * A rescaling step is inserted between MaxPooling and Dense to match hardware behavior.
+   * The CNN is split into two Keras models to incorporate this rescaling.
 
-#### Results After Executing test_firmware.py
-* **Output Keras: ... Generated in: ...**
-  A single scalar, output of the Keras model, with the execution time in seconds.
-* **Output manual: ... Generated in: ...**
-  A single scalar, output of the manual model, with the execution time in seconds.
-* **Deviation statistics in extended test**
-  Results from N statistical tests with random inputs. 
-* **Average deviation, Median eviation, Min deviation, Max deviation**
-  Deviations of the distribution of results from the extended statistical test.
-* **Plot**
-  Histogram of the deviations distribution, which, if everything works correctly in the simulation, should show a single bin at 0% deviation.
-* **division_library.txt**
-  Library storing the division between value and scaling factor, so that floating point operations are not necessary in the hardware implementation.
+3. **Rescaling Mechanism:**
 
-#### Observations:
-The firmware test script demonstrates robust numerical stability under integer-only computation.
+   * Instead of division, the code applies **bit-shifting** based rescaling.
+   * Formula: multiply by a scaling factor (e.g., `127 * 4096`), then apply a right shift (`>> TUNE`) to normalize the value.
 
-The library-based division strategy is validated and ready for hardware deployment.
+4. **Manual Forward Propagation:**
 
-Deviation from float32 is consistently 0%, proving that the quantization and rescaling approach is viable for FPGA implementation.
+   * All operations are performed with **manual integer-based functions**, avoiding NumPy built-ins that use floating-point.
 
-This script bridges the gap between Python modeling and FPGA hardware constraints, offering a ready-to-use validation step for hardware accelerators.
+5. **Single Run Deviation Analysis:**
+
+   * The manual integer pipeline output is compared to the Keras float output.
+   * Computes absolute and percentage deviation.
+
+6. **Extended Statistical Testing:**
+
+   * Runs N = 200 random input tests.
+   * Collects:
+
+     * Average deviation.
+     * Median deviation.
+     * Minimum deviation.
+     * Maximum deviation.
+   * Generates a histogram to visualize the deviation distribution.
+
+7. **Division Lookup Table Generation:**
+
+   * Generates `division_library.txt`.
+   * This file stores precomputed integer division results in hexadecimal format.
+   * Used to replace division operations with LUT access in FPGA hardware.
+
+---
+
+#### Results After Executing `test_firmware.py`
+
+* **Keras Output:**
+
+  * A scalar value.
+  * Execution time displayed in seconds.
+
+* **Manual Output:**
+
+  * A scalar integer value.
+  * Execution time displayed in seconds.
+
+* **Deviation Statistics:**
+
+  * **Average deviation**
+  * **Median deviation**
+  * **Minimum deviation**
+  * **Maximum deviation**
+
+* **Plot:**
+
+  * A histogram visualizing the deviations from the extended statistical test.
+  * If the firmware model is accurate, the histogram should show a single bin at 0% deviation.
+
+* **Division Lookup Table:**
+
+  * `division_library.txt` contains precomputed scaled division results in hexadecimal.
+  * Used to remove floating-point operations from hardware implementations.
+
+---
+
+#### Observations
+
+* The firmware test script shows **excellent numerical stability** using only integer arithmetic.
+* The lookup-table-based division approach works flawlessly and is optimized for FPGA deployment.
+* The extended statistical test typically shows **0% deviation**, demonstrating the quantization and rescaling strategies are accurate and reliable.
+* This script acts as a **crucial validation step**, ensuring that the firmware logic in Python matches the expected FPGA hardware behavior.
+
+---
+
+#### Summary Conclusion
+
+This firmware simulation pipeline provides a reliable bridge between Python-based algorithm development and hardware implementation constraints. The integer arithmetic, overflow handling, and rescaling logic have been fully validated, offering a practical framework for translating neural network models into FPGA-optimized designs.
 
 
-### utils/
+### utils/ -- E.C., L.F.
 
-#### __init__.py
+#### `__init__.py`
 The `__init__.py` file, even if empty, serves as a marker to Python that the directory should be treated as a package, not just a plain folder.
 
 ---
@@ -597,7 +757,7 @@ The dependencies required for this project are included in the `env.yml` file, w
 
 These will be installed automatically during the `conda env create` step.
 
-If you install additional packages or modify the environment, update `env.yml` with:
+If new packages need to be installed or changes need to be made to the environment, the `env.yml` file should be updated using the following command:
 
 ```bash
 conda env export > env.yml
