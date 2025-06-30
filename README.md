@@ -9,8 +9,8 @@
 - [Introduction](#introduction)
 - [Contributions](#contributions)
 - [Repository structure](#repository-structure)
-  - [`unet.py`](#unetpy)
   - [`cnn_quantized.py`](#cnn_quantizedpy)
+  - [`unet.py`](#unetpy)
   - [`test_firmware.py`](#test_firmwarepy)
   - [`utils/`](#utils)
     - [utils.py](#utilspy)
@@ -53,93 +53,46 @@ In short, `utils.py `, as the basis of the project, was written by both E.C. and
 ├── env.yml            # Conda environment definition with all dependencies
 └── README.md          # Project overview, instructions, and design rationale
 ```
+Before commenting on the structure of the individual scripts, let's first explain the quantization procedure followed in both the CNN and the U-Net.
 
+### Purpose of Quantization:
 
-### unet.py
+Quantization is used to turn floating-point weights, inputs, and activations into lower bit-width integers to save memory, reduce bandwidth, and enable faster computations on FPGA hardware that uses integer arithmetic. The goal is to achieve these benefits with as little numerical accuracy loss as possible.
 
-#### Purpose of Quantization:
-
-Quantization reduces **floating-point weights, inputs, and activations to lower bit-width integers** to reduce memory and bandwidth, to enable compatibility with FPGA integer arithmetic and to achieve faster computation with minimal numerical loss.
-
-Here, **8-bit signed quantization** is applied, but **int16 storage is used** to **avoid overflow during intermediate multiplications and accumulations** within layers.
-
----
+Here, we apply 8-bit signed quantization while storing values in int16 to prevent overflow when multiplying and accumulating values during layer operations.
 
 #### Quantization Formula
 
-Given:
-
-* Floating-point value: $x_{float}$
-* Scale factor: $S = 2^{b}$ where $b = b_w - 1 - \lfloor \log_2 (\max(|x_{float}|)) \rfloor$
+Given a floating-point value: $x_{float}$, we first compute a scale factor:
+$$
+S = 2^{b} \quad \text{where} \quad b = b_w - 1 - \lfloor \log_2 (\max(|x_{float}|)) \rfloor
+$$
 
 The quantized value is computed as:
 
 $$
-\boxed{ x_{quant} = \mathrm{clip}(\mathrm{round}(x_{float} \times S), -127, 127) }
+\boxed{ x_{quant} = \mathrm{clip}(\mathrm{round}(x_{float} \times S), -127, 127) } .
 $$
-
-Here, the clip range is $[-127, 127]$ (8-bit signed), while **storage and computation are performed in int16** to avoid overflow in intermediate layers.
-
----
 
 #### Dequantization Formula
 
-To recover approximate floating-point values, the dequantized output is computed as:
+To get back to approximate floating-point values, we use:
 
 $$
 \boxed{ x_{dequant} = \frac{x_{quant}}{S} }
 $$
 
-Since multiple layers are cascaded, dequantization is applied progressively by dividing by the product of all scale factors and kernel scales used during the forward pass.
+Since layers are connected in sequence, we divide by the product of all scale factors and kernel scales used throughout the forward pass.
 
----
+Using int16 is essential here because when multiple quantized values are multiplied together, they can exceed the 8-bit range and risk overflow. Storing in int16 ensures computations remain accurate before scaling down for the next layer.
 
-* The quantization uses 8-bit scaling, but during convolutions and accumulations in deeper layers, the product of multiple quantized values can **exceed the 8-bit range**, risking overflow.
-* Using `int16` ensures safe computation without loss of information before re-scaling and clipping for the next layers.
-* This is essential for **manual quantization and FPGA implementation** where overflow can lead to incorrect computations.
+#### Process Summary
 
----
-
-### Process Summary
-
-1. **Scale factors are computed** based on the maximum absolute value of weights and inputs to utilize the 8-bit range fully while avoiding overflow.
-2. **Inputs, weights, and biases are quantized using these scale factors** to int16.
-3. Forward propagation is manually executed using `manual_conv2D`, `manual_maxpool2D`, `manual_upsampling`, and `manual_concatenate`, maintaining the quantized domain.
-4. **Dequantization is performed progressively** by dividing by the product of all scale factors and kernel scales.
-5. Results are compared with the float32 model to assess numerical alignment.
-
----
-
-### Results After Executing `unet.py`
-
-**Shape logs during U-Net construction:**
-
-```
-Shape after conv1: (None, 64, 64, 2)
-Shape after pool1: (None, 32, 32, 2)
-Shape after conv2: (None, 32, 32, 2)
-Shape after pool2: (None, 16, 16, 2)
-Shape after conv3: (None, 16, 16, 2)
-Shape after pool3: (None, 8, 8, 2)
-Shape after conv4 (bottleneck): (None, 8, 8, 2)
-```
-
-**Execution results:**
-
-* **Output model (float32):**
-  Values in the range of \~130k to 740k.
-* **Dequantized output:**
-  Closely matches the float32 output with minor numerical differences.
-* **Execution times:**
-
-  * Float32 Keras: \~1.17 seconds
-  * Manual quantized pipeline: \~1.06 seconds
-* **Percentage difference (float vs dequantized):**
-
-  * **Maximum:** 8.33 %
-  * **Mean:** 0.99 %
-
-These results confirm that **manual quantization and dequantization preserve the integrity of the U-Net output within a low percentage error**, validating the correctness of the pipeline for FPGA preparation.
+1. **Compute scale factors** based on the maximum absolute values in weights and inputs to fully use the 8-bit range while preventing overflow.
+2. **Quantize inputs, weights, and biases using these scale factors** and store them as int16.
+3. Perform the forward pass manually using functions stored in `utils`, staying within the quantized domain.
+4. **Dequantize progressively** by dividing by the combined scale factors.
+5. Compare the dequantized output with the float32 model to ensure they align closely.
 
 ---
 
@@ -195,7 +148,202 @@ This step is essential before applying the quantization method to more complex a
 
 Results show a low numerical error with correct scaling and overflow handling, demonstrating compatibility with FPGA integer-based computation.
 
+--- 
 
+### unet.py
+
+#### Library imports
+
+For building the network, the following libraries were used:
+
+```python
+import tensorflow as tf
+from keras.layers import Input, Conv2D, MaxPooling2D, UpSampling2D, Concatenate, Flatten
+from keras.models import Model
+import time
+import numpy as np
+from utils.utils import *  # custom manually defined functions for manual convolution, pooling, etc.
+```
+where **TensorFlow and Keras** are required for constructing and executing the U-Net, **time** is used to measure execution time, **numpy** is used for generating and manipulating input data and manually initializing kernels and biases, and **utils.utils** contains manually implemented layer operations for manual quantization.
+
+#### U-NET model definition
+
+The command:
+```python
+def unet_model(input_shape=(64, 64, 1)):
+```
+defines a function that builds and returns a U-Net model, which takes as input `input_shape=(64, 64, 1)`, a tensor with dimension 64x64 and 1 channel (grayscale image).
+
+In the *Encoder* section we create an input layer with the specified shape for the model and then we apply Convolution + MaxPooling for three times
+
+```python
+inputs = Input(shape=input_shape)
+
+conv1 = Conv2D(2, (3, 3), activation='relu', padding='same')(inputs)
+pool1 = MaxPooling2D((2, 2))(conv1)
+```
+where `Conv2D(2, (3, 3), activation='relu', padding='same')` applies 2 convolution filters of size 3x3, uses ReLU as activation function and with `padding='same'` keeps the output size the same as input. The `MaxPooling2D((2, 2))` instead, applies 2x2 max pooling, reducing spatial dimensions (height and width) by 2.
+The same pattern repeats for `conv2`, `pool2`, `conv3`, `pool3`:
+
+The bottleneck layer:
+
+```python
+conv4 = Conv2D(2, (3, 3), activation='relu', padding='same')(pool3)
+```
+is a convolution after the final downsampling, used to extract high-level features at the lowest resolution.
+The following prints confirm that the encoder is progressively reducing spatial dimensions while maintaining the expected channel structure.
+```
+Shape after conv1: (None, 64, 64, 2)
+Shape after pool1: (None, 32, 32, 2)
+Shape after conv2: (None, 32, 32, 2)
+Shape after pool2: (None, 16, 16, 2)
+Shape after conv3: (None, 16, 16, 2)
+Shape after pool3: (None, 8, 8, 2)
+Shape after conv4 (bottleneck): (None, 8, 8, 2)
+```
+
+In the *Decoder* section the **UpSampling2D** is used to double spatial dimensions (height and width) of the previous layer output using nearest-neighbor upsampling. ence **Concatenate** is applied to concatenate the upsampled feature map with encoder outputs (skip connections), resulting in a intermediate stage with the number of channels doubled. 
+Then the **Conv2D** layers applies a 2-filter convolution with a 3x3 kernel on the concatenated feature map halving the number of channels.
+
+```python
+    up1 = UpSampling2D((2, 2))(conv4)
+    merge1 = Concatenate()([up1, conv3])
+    dec1 = Conv2D(2, (3, 3), activation='relu', padding='same')(merge1)
+```
+
+The scheme followed is:
+
+* `up1` upsample + concatenate with `conv3` → `dec1` conv.
+* `up2` upsample + concatenate with `conv2` → `dec2` conv.
+* `up3` upsample + concatenate with `conv1` → `dec3` conv.
+
+These layers progressively reconstruct the image size while preserving spatial details from encoder layers. 
+
+The output layer
+
+```python
+outputs = Conv2D(1, (1, 1), activation='relu')(dec3)
+```
+applies a final 1x1 convolution to reduce the channels to 1 for output.
+
+Finally, we build and return the U-Net model, connecting the `inputs` and `outputs`.
+
+```python
+    model = Model(inputs, outputs, name="U-Net")
+    return model
+
+unet = unet_model(input_shape=(64, 64, 1))
+```
+
+#### Keras U-Net Model Execution
+
+We set a fixed random seed for reproducibility and generate a random 64x64 grayscale image (batch=1, height=64, width=64, channels=1). The input is normalized to the [0, 1] range.
+
+```python
+np.random.seed(1)
+input_data = np.random.rand(1, 64, 64, 1).astype(np.float32)  
+input_float = input_data / np.max(input_data) 
+```
+
+The following block manually initializes and normalizes kernels and biases for each Conv2D layer in the U-Net using fixed seeds for reproducibility. Kernels are generated with random values, normalized to [0, 1] to avoid overflow, while biases are initialized to zero for testing consistency.
+
+```python
+# Manual initialization and normalization of kernels and biases for Conv2D layers
+np.random.seed(1)
+manual_kernel_11 = np.random.rand(3, 3, 1, 2).astype(np.float32)
+manual_kernel_float_1 = manual_kernel_11 / np.max(manual_kernel_11)
+manual_bias_float_1 = np.zeros(2)
+...
+np.random.seed(8)
+manual_kernel_88 = np.random.rand(1, 1, 2, 1).astype(np.float32)
+manual_kernel_float_8 = manual_kernel_88 / np.max(manual_kernel_88)
+manual_bias_float_8 = np.zeros(1)
+```
+Across the U-Net layers, the kernel dimensions evolve consistently while following architectural needs.
+The weights are then assigned by extracting each Conv2D layer by its index and assigning the manually created and normalized kernels and biases to that layer using `set_weights()`.
+
+```python
+# Setting weights
+unet = unet_model(input_shape=(64, 64, 1))
+conv_layer_1 = unet.layers[1]
+conv_layer_1.set_weights([manual_kernel_float_1, manual_bias_float_1])
+ ...
+conv_layer_8 = unet.layers[17]
+conv_layer_8.set_weights([manual_kernel_float_8, manual_bias_float_8])
+```
+
+This way, the U-Net runs with consistent, known weights instead of random ones, making it easier to compare the float and quantized outputs.
+
+Now, the Keras model is executed while measuring the execution time using `time.time()`, and the output is printed for inspection.
+
+```python
+##### RUNNING KERAS MODEL #####
+start1 = time.time()
+output_model = unet.predict(input_float)
+end1 = time.time()
+timing1 = end1 - start1
+
+print("\nOutput model (float32):")
+print(output_model.flatten())
+print(f"\nExecution time: {timing1:.4f} seconds")
+```
+
+#### Quantization
+
+In the following block, the scale factors are computed as previously explained:
+
+```python
+#### MANUAL QUANTIZED U-NET ####
+
+# Compute scale factors for quantization
+max_input_value = np.max(np.abs(input_float))
+...
+max_kernel8_value = np.max(np.abs(manual_kernel_float_8))
+
+b_w = 8  # Total number of bits
+b_in = b_w - 1 - np.round(np.log2(max_input_value)).astype(int)
+...
+b_k8 = b_w - 1 - np.round(np.log2(max_kernel8_value)).astype(int)
+
+# Compute scale factors to use for quantization
+scale_input = 2 ** b_in
+...
+scale_kernel8 = 2 ** b_k8
+```
+
+In the `#### QUANTIZATION ####` step, the input, kernels, and biases are quantized.
+
+```python
+#### QUANTIZATION ####
+input_quantized = np.clip((input_float * scale_input).round(), -127, 127).astype(np.int16)
+
+kernel1_quantized = np.clip((manual_kernel_float_1 * scale_kernel1).round(), -127, 127).astype(np.int16)
+bias1_quantized = np.clip((manual_bias_float_1 * scale_input * scale_kernel1).round(), -32768, 32767).astype(np.int16)
+
+...
+kernel8_quantized = np.clip((manual_kernel_float_8 * scale_kernel8).round(), -127, 127).astype(np.int16)
+```
+In the final block:
+
+```python
+#### MANUAL UNET ####
+```
+
+the manual convolution, ReLU, max pooling, upsampling, and concatenation functions used are implemented in the `utils` module. After completing the forward pass with the manually quantized U-Net, the network is then dequantized to recover a float representation. This allows you to verify the agreement between the dequantized output and the original float32 output from the Keras model, ensuring the correctness of the manual quantization workflow before moving to FPGA testing.
+
+#### Results After Executing `unet.py`
+The following results confirm that manual quantization and dequantization preserve the integrity of the U-Net output within a low percentage error, validating the correctness of the pipeline for FPGA preparation.
+
+* **Execution times:**
+
+  * Float32 Keras: \~1.17 seconds
+  * Manual quantized pipeline: \~1.06 seconds
+* **Percentage difference (float vs dequantized):**
+
+  * **Maximum:** 8.33 %
+  * **Mean:** 0.99 %
+
+---
 
 ### test_firmware.py --
 This code accurately simulates the VHDL implementation. It is based on slightly modified functions with respect to those outlined in `utils.py` to faithfully reproduce the VHDL version and aid in the VHDL coding.
