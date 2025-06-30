@@ -1,4 +1,7 @@
-# FIRMWARE TESTING SCRIPT
+# FIRMWARE TESTING SCRIPT WITH COMPARISON AND STATISTICS
+
+#
+
 # This script tests a manual firmware implementation against a Keras model
 import numpy as np
 from tensorflow.keras.models import Sequential
@@ -29,7 +32,7 @@ manual_dense_bias = np.random.randint(-4096, 4097, dtype=np.int32)
 #### MANUAL FUNCTIONS FOR SIMULATED QUANTIZED NETWORK ###
 
 # Manual 2D convolution
-def manual_conv2D(input_data, kernel, bias, padding):
+def manual_conv2D_FW(input_data, kernel, bias, padding):
     stride = 1
     # Batch index handling: reduce the indeces to 3 if there is batch index (removing it)
     if len(input_data.shape) == 4:
@@ -44,7 +47,7 @@ def manual_conv2D(input_data, kernel, bias, padding):
 
     # Add padding if requested and update input shape
     if padding == 'same':
-        input_data = add_padding(input_data, kernel_height, kernel_width)
+        input_data = add_padding_FW(input_data, kernel_height, kernel_width)
         input_height, input_width, _ = input_data.shape
 
     # Output shape calculation
@@ -67,7 +70,7 @@ def manual_conv2D(input_data, kernel, bias, padding):
     return output
 
 # Manual 2D maxpooling function without numpy functions to simulate firmware VHDL package
-def maxpool2d_manual(input_data, pool_size=(2, 2), stride=2):
+def maxpool2d_manual_FW(input_data, pool_size=(2, 2), stride=2):
     input_height, input_width, num_channels = input_data.shape
     pool_height, pool_width = pool_size
     # Output shape calculation
@@ -89,7 +92,7 @@ def maxpool2d_manual(input_data, pool_size=(2, 2), stride=2):
     return output
 
 # Manual padding function that doesn't use the numpy.pad function
-def add_padding(input_data, kernel_height, kernel_width):
+def add_padding_FW(input_data, kernel_height, kernel_width):
     has_batch = False
     
     # Check if input data has batch size
@@ -121,14 +124,14 @@ def add_padding(input_data, kernel_height, kernel_width):
     return padded_input
 
 # Manual ReLu to not use numpy.maximum function
-def relu_manual(input_data):
+def relu_manual_FW(input_data):
     if input_data > 0:
         return input_data
     else:
         return 0
 
 # Manual function to find max absolute value of input function without using numpy functions
-def findmax(input_data):
+def findmax_FW(input_data):
     max_val = 0
     for x in input_data.flat:
         if x>=0:
@@ -140,9 +143,9 @@ def findmax(input_data):
     return max_val
 
 # Manual rescaling function, firmware-like
-def rescale(input_float):
+def rescale_FW(input_float):
     # Find maximum absolute value
-    max_input_value = findmax(input_float)
+    max_input_value = findmax_FW(input_float)
     input_shape = input_float.shape
     # Create rescaled output
     input_rescaled = np.zeros(input_shape,dtype=np.int16)
@@ -175,9 +178,9 @@ conv_layer_1.set_weights([manual_kernel_float_1, np.array([manual_bias_float_1, 
 start = time.time()
 
 # First output
-output_model = model.predict(input_float)
+output_model = model.predict(input_float, verbose=0)
 # Rescale 
-output_model_rescaled, f_scale = rescale(output_model)
+output_model_rescaled, f_scale = rescale_FW(output_model)
 
 # Second Keras model with dense layer
 model2 = Sequential([
@@ -195,7 +198,7 @@ end = time.time()
 timing = end - start
 
 print("\nOutput Keras:", output_model_2.flatten())
-print(f"Generated in {timing:.4f} s")
+print(f"Generated in {timing:.6f} s")
 
 
 #### MANUAL FUNCTION-BASED SIMULATION OF FIRMWARE ####
@@ -204,20 +207,20 @@ print(f"Generated in {timing:.4f} s")
 start_manual = time.time()
 
 # Convolution
-conv_out = manual_conv2D(rescale(input_float)[0], manual_kernel_float_1, manual_bias_float_1, padding='same')
+conv_out = manual_conv2D_FW(rescale_FW(input_float)[0], manual_kernel_float_1, manual_bias_float_1, padding='same')
 
 # Apply ReLU manually
 relu_out = np.zeros_like(conv_out)
 for i in range(conv_out.shape[0]):
     for j in range(conv_out.shape[1]):
         for c in range(conv_out.shape[2]):
-            relu_out[i, j, c] = relu_manual(conv_out[i, j, c])
+            relu_out[i, j, c] = relu_manual_FW(conv_out[i, j, c])
 
 # Maxpooling manually
-pool_out = maxpool2d_manual(relu_out)
+pool_out = maxpool2d_manual_FW(relu_out)
 
 # Rescale manually
-pool_out_rescaled, scale_dense = rescale(pool_out)
+pool_out_rescaled, scale_dense = rescale_FW(pool_out)
 
 # Flatten for dense layer
 flat_input = pool_out_rescaled.flatten()
@@ -235,7 +238,7 @@ end_manual = time.time()
 timing_manual = end_manual - start_manual
 
 print("\nOutput Manual:", output_manual)
-print(f"Generated in {timing_manual:.4f} s")
+print(f"Generated in {timing_manual:.6f} s")
 
 #### SIMULATION COMPARISON ####
 keras_value = output_model_2.flatten()[0]
@@ -256,16 +259,16 @@ for test in range(N):
     input_rand = np.random.randint(-126, 128, size=(1, 8, 8, 2), dtype=np.int32)
 
     # Keras
-    output_model = model.predict(input_rand)
-    output_model_rescaled, _ = rescale(output_model)
+    output_model = model.predict(input_rand, verbose=0)
+    output_model_rescaled, _ = rescale_FW(output_model)
     output_model_2 = model2.predict(output_model_rescaled)
     keras_value = output_model_2.flatten()[0]
 
     # Manual
-    conv_out = manual_conv2D(rescale(input_rand)[0], manual_kernel_float_1, manual_bias_float_1, padding='same')
+    conv_out = manual_conv2D_FW(rescale_FW(input_rand)[0], manual_kernel_float_1, manual_bias_float_1, padding='same')
     relu_out = np.maximum(conv_out, 0)
-    pool_out = maxpool2d_manual(relu_out)
-    pool_out_rescaled, _ = rescale(pool_out)
+    pool_out = maxpool2d_manual_FW(relu_out)
+    pool_out_rescaled, _ = rescale_FW(pool_out)
     flat_input = pool_out_rescaled.flatten()
     dense_sum = sum(flat_input[i] * manual_dense_weights[i] for i in range(len(flat_input)))
     dense_sum += manual_dense_bias

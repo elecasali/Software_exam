@@ -1,11 +1,16 @@
+# FULL CNN WITH QUANTIZATION SIMULATION AND COMPARISON
+# FINAL VERSION WITH FILTER HANDLING
+
+## AUTHOR: L. FENDILLO
+
 import numpy as np
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Conv2D, Flatten, Dense, MaxPooling2D
 import time
 from utils.utils import * # contains funtions manually defined
 
-# Total number of bits to use
-B_W = 8  
+# Total number of bits to use in the quantization
+B_W = 8
 
 #### NETWORK WITH MULTIPLE FILTERS, THEN QUANTIZED ####
 
@@ -179,15 +184,15 @@ for i in range(len(out12)):
     #print("Result ", i, " = ", result)
     
 print("\nTimes it overflows: ", overflow)   
-print("\nBias: ", bias_dense_quantized)
+#print("\nBias: ", bias_dense_quantized)
 
 stop_manual = time.time()
 timing_manual = stop_manual - start_manual
 
 # Output
 out13 = result + bias_dense_quantized
-print("\nQuantized output: \n", out13)
-print(f"\nTime for Keras output: {timing_manual:.6f} seconds")
+print("\nQuantized manual output: \n", out13)
+print(f"\nTime for manual output: {timing_manual:.6f} seconds")
 
 
 #### DEQUANTIZATION ####
@@ -204,7 +209,7 @@ o3 = o2 / (scale_kernel3 * scale_factor2)
 o4 = o3 / (scale_kernel4 * scale_dense * scale_factor1)
 output_dequantized = o4 + overflow * temp5
 
-print("\nDequantized output:")
+print("\nDequantized manual output:")
 print(output_dequantized)
 
 
