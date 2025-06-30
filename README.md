@@ -230,21 +230,6 @@ result += overflow_counter * 32767
 
 #### Results
 
-* **Float32 output:** Single scalar.
-* **Keras time:** \~0.016 seconds.
-* **Overflow counts:** Number of overflows in dense layer.
-* **Quantized manual output:** Pre-dequantization integer output.
-* **Manual time:** \~0.018 seconds.
-* **Dequantized manual output:** Matches float output closely.
-* **Difference:** Absolute float difference.
-* **Percentage difference:** \~1.31%.
-* **Timing difference:** \~0.002 seconds.
-* **Timing difference percentage:** \~12%.
-
----
-
-#### Observations
-
 * Validates quantization before moving to U-Net.
 * Overflow handling behaves correctly.
 * Numerical error is low and acceptable.
@@ -292,7 +277,7 @@ conv1 = Conv2D(2, (3, 3), activation='relu', padding='same')(inputs)
 pool1 = MaxPooling2D((2, 2))(conv1)
 ```
 where `Conv2D(2, (3, 3), activation='relu', padding='same')` applies 2 convolution filters of size 3x3, uses ReLU as activation function and with `padding='same'` keeps the output size the same as input. The `MaxPooling2D((2, 2))` instead, applies 2x2 max pooling, reducing spatial dimensions by 2.
-The same pattern repeats for `conv2`, `pool2`, `conv3`, `pool3`:
+The same pattern repeats for `conv2`, `pool2`, `conv3`, `pool3`.
 
 The bottleneck layer:
 

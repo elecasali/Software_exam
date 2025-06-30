@@ -4,8 +4,8 @@
 
 # This script tests a manual firmware implementation against a Keras model
 import numpy as np
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, Flatten, Dense, MaxPooling2D
+from keras.models import Sequential
+from keras.layers import Conv2D, Flatten, Dense, MaxPooling2D
 import matplotlib.pyplot as plt
 import time
 
