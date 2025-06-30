@@ -217,7 +217,9 @@ Then the **Conv2D** layers applies a 2-filter convolution with a 3x3 kernel on t
 The scheme followed is:
 
 `up1` upsample + concatenate with `conv3` → `dec1` conv.
+
 `up2` upsample + concatenate with `conv2` → `dec2` conv.
+
 `up3` upsample + concatenate with `conv1` → `dec3` conv.
 
 These layers progressively reconstruct the image size while preserving spatial details from encoder layers. 
